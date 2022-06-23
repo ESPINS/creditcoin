@@ -4,8 +4,9 @@ use crate::{
 	service,
 };
 use creditcoin_node_runtime::Block;
-use sc_cli::{build_runtime, ChainSpec, Role, Runner, RuntimeVersion, SubstrateCli};
-use sc_service::PartialComponents;
+use futures::{future, future::FutureExt, pin_mut, select, Future};
+use sc_cli::{build_runtime, ChainSpec, Role, RuntimeVersion, SubstrateCli};
+use sc_service::{Configuration, Error as ServiceError, PartialComponents};
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
@@ -141,38 +142,18 @@ pub fn build_tokio_runtime() -> std::result::Result<tokio::runtime::Runtime, std
 	build_runtime()
 }
 
-#[allow(dead_code)]
-pub fn run_internal(
-	args: Vec<std::ffi::OsString>,
-	tokio_runtime: tokio::runtime::Runtime,
-) -> sc_cli::Result<()> {
-	let cli = Cli::from_iter(args.into_iter());
-	let runner = create_runner_without_log_config(&cli, tokio_runtime)?;
-
-	runner.run_node_until_exit(|config| async move {
-		match config.role {
-			Role::Light => Err("Light clients are not supported at this time".into()),
-			_ => service::new_full(
-				config,
-				cli.mining_key.as_deref(),
-				cli.mining_threads,
-				cli.rpc_mapping,
-			),
-		}
-		.map_err(sc_cli::Error::Service)
-	})
-}
-
 /// The recommended open file descriptor limit to be configured for the process.
 const RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT: u64 = 10_000;
 
-fn create_runner_without_log_config(
-	cli: &Cli,
-	tokio_runtime: tokio::runtime::Runtime,
-) -> sc_cli::Result<Runner<Cli>> {
+#[allow(dead_code)]
+pub fn run_internal(
+	args: Vec<std::ffi::OsString>,
+	tokio_runtime: &tokio::runtime::Runtime,
+) -> sc_cli::Result<()> {
+	let cli = Cli::from_iter(args.into_iter());
 	let config = cli.create_configuration(&cli.run, tokio_runtime.handle().clone())?;
 
-	sp_panic_handler::set("support.anonymous.an".into(), env!("SUBSTRATE_CLI_IMPL_VERSION").into());
+	set_sp_panic_handler::<Cli>();
 
 	if let Some(new_limit) = fdlimit::raise_fd_limit() {
 		if new_limit < RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT {
@@ -185,5 +166,86 @@ fn create_runner_without_log_config(
 		}
 	}
 
-	Runner::new(config, tokio_runtime)
+	run_node_until_exit(
+		|config| async move {
+			match config.role {
+				Role::Light => Err("Light clients are not supported at this time".into()),
+				_ => service::new_full(
+					config,
+					cli.mining_key.as_deref(),
+					cli.mining_threads,
+					cli.rpc_mapping,
+				),
+			}
+			.map_err(sc_cli::Error::Service)
+		},
+		config,
+		&tokio_runtime,
+	)
+}
+
+fn set_sp_panic_handler<C: SubstrateCli>() {
+	sp_panic_handler::set(&C::support_url(), &C::impl_version());
+}
+
+fn run_node_until_exit<F, E>(
+	initialize: impl FnOnce(Configuration) -> F,
+	config: Configuration,
+	tokio_runtime: &tokio::runtime::Runtime,
+) -> std::result::Result<(), E>
+where
+	F: Future<Output = std::result::Result<sc_service::TaskManager, E>>,
+	E: std::error::Error + Send + Sync + 'static + From<ServiceError>,
+{
+	sc_cli::print_node_infos::<Cli>(&config);
+	let mut task_manager = tokio_runtime.block_on(initialize(config))?;
+	let res = tokio_runtime.block_on(main(task_manager.future().fuse()));
+	Ok(res?)
+}
+
+#[cfg(target_family = "unix")]
+async fn main<F, E>(func: F) -> std::result::Result<(), E>
+where
+	F: Future<Output = std::result::Result<(), E>> + future::FusedFuture,
+	E: std::error::Error + Send + Sync + 'static + From<ServiceError>,
+{
+	// use tokio::signal::unix::{signal, SignalKind};
+
+	let mut stream_int = signal(SignalKind::interrupt()).map_err(ServiceError::Io)?;
+	let mut stream_term = signal(SignalKind::terminate()).map_err(ServiceError::Io)?;
+
+	let t1 = stream_int.recv().fuse();
+	let t2 = stream_term.recv().fuse();
+	let t3 = func;
+
+	pin_mut!(t1, t2, t3);
+
+	select! {
+		_ = t1 => {},
+		_ = t2 => {},
+		res = t3 => res?,
+	}
+
+	Ok(())
+}
+
+#[cfg(not(unix))]
+async fn main<F, E>(func: F) -> std::result::Result<(), E>
+where
+	F: Future<Output = std::result::Result<(), E>> + future::FusedFuture,
+	E: std::error::Error + Send + Sync + 'static + From<ServiceError>,
+{
+	use tokio::signal::ctrl_c;
+
+	let t1 = ctrl_c().fuse();
+	let t2 = func;
+
+	pin_mut!(t1, t2);
+
+	select! {
+		_ = t1 => {},
+		res = t2 => res?,
+	}
+
+	Ok(())
 }

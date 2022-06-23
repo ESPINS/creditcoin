@@ -960,6 +960,7 @@ dependencies = [
  "fdlimit",
  "frame-benchmarking",
  "frame-benchmarking-cli",
+ "futures 0.3.21",
  "futures-lite",
  "hex",
  "jsonrpc-core",
