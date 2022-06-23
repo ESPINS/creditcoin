@@ -119,7 +119,7 @@ pub fn run() -> sc_cli::Result<()> {
 			}
 		},
 		None => {
-			let runner = create_runner_without_log_config(&cli)?;
+			let runner = cli.create_runner(&cli.run)?;
 			runner.run_node_until_exit(|config| async move {
 				match config.role {
 					Role::Light => Err("Light clients are not supported at this time".into()),
@@ -136,11 +136,40 @@ pub fn run() -> sc_cli::Result<()> {
 	}
 }
 
+#[allow(dead_code)]
+pub fn build_tokio_runtime() -> std::result::Result<tokio::runtime::Runtime, std::io::Error> {
+	build_runtime()
+}
+
+#[allow(dead_code)]
+pub fn run_internal(
+	args: Vec<std::ffi::OsString>,
+	tokio_runtime: tokio::runtime::Runtime,
+) -> sc_cli::Result<()> {
+	let cli = Cli::from_iter(args.into_iter());
+	let runner = create_runner_without_log_config(&cli, tokio_runtime)?;
+
+	runner.run_node_until_exit(|config| async move {
+		match config.role {
+			Role::Light => Err("Light clients are not supported at this time".into()),
+			_ => service::new_full(
+				config,
+				cli.mining_key.as_deref(),
+				cli.mining_threads,
+				cli.rpc_mapping,
+			),
+		}
+		.map_err(sc_cli::Error::Service)
+	})
+}
+
 /// The recommended open file descriptor limit to be configured for the process.
 const RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT: u64 = 10_000;
 
-fn create_runner_without_log_config(cli: &Cli) -> sc_cli::Result<Runner<Cli>> {
-	let tokio_runtime = build_runtime()?;
+fn create_runner_without_log_config(
+	cli: &Cli,
+	tokio_runtime: tokio::runtime::Runtime,
+) -> sc_cli::Result<Runner<Cli>> {
 	let config = cli.create_configuration(&cli.run, tokio_runtime.handle().clone())?;
 
 	sp_panic_handler::set("support.anonymous.an".into(), env!("SUBSTRATE_CLI_IMPL_VERSION").into());
