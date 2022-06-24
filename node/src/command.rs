@@ -4,7 +4,7 @@ use crate::{
 	service,
 };
 use creditcoin_node_runtime::Block;
-use sc_cli::{ChainSpec, Role, RuntimeVersion, SubstrateCli};
+use sc_cli::{build_runtime, ChainSpec, Role, Runner, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
 
 impl SubstrateCli for Cli {
@@ -53,6 +53,11 @@ impl SubstrateCli for Cli {
 	fn native_runtime_version(_: &Box<dyn ChainSpec>) -> &'static RuntimeVersion {
 		&creditcoin_node_runtime::VERSION
 	}
+}
+
+#[allow(dead_code)]
+pub fn from_args() -> Cli {
+	Cli::from_args()
 }
 
 /// Parse and run command line arguments
@@ -119,7 +124,11 @@ pub fn run() -> sc_cli::Result<()> {
 			}
 		},
 		None => {
-			let runner = cli.create_runner(&cli.run)?;
+			let runner = if cli.logger_mode == "WithoutLoggerInit" {
+				create_runner_without_logger_init(&cli)?
+			} else {
+				cli.create_runner(&cli.run)?
+			};
 			runner.run_node_until_exit(|config| async move {
 				match config.role {
 					Role::Light => Err("Light clients are not supported at this time".into()),
@@ -134,4 +143,31 @@ pub fn run() -> sc_cli::Result<()> {
 			})
 		},
 	}
+}
+
+/// The recommended open file descriptor limit to be configured for the process.
+const RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT: u64 = 10_000;
+
+fn create_runner_without_logger_init(cli: &Cli) -> sc_cli::Result<Runner<Cli>> {
+	let tokio_runtime = build_runtime()?;
+	let config = cli.create_configuration(&cli.run, tokio_runtime.handle().clone())?;
+
+	set_sp_panic_handler::<Cli>();
+
+	if let Some(new_limit) = fdlimit::raise_fd_limit() {
+		if new_limit < RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT {
+			log::warn!(
+				"Low open file descriptor limit configured for the process. \
+				Current value: {:?}, recommended value: {:?}.",
+				new_limit,
+				RECOMMENDED_OPEN_FILE_DESCRIPTOR_LIMIT,
+			);
+		}
+	}
+
+	Runner::new(config, tokio_runtime)
+}
+
+fn set_sp_panic_handler<C: SubstrateCli>() {
+	sp_panic_handler::set(&C::support_url(), &C::impl_version());
 }

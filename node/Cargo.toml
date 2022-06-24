@@ -37,7 +37,7 @@ tiny-bip39 = "0.8.2"
 hex = "0.4.3"
 creditcoin-node-rpc = { version = "2.0.0-beta.7", path = "./rpc" }
 primitives = { path = "../primitives" }
-
+fdlimit = "0.2.1"
 
 [dependencies.frame-benchmarking]
 git = "https://github.com/gluwa/substrate.git"
@@ -182,6 +182,12 @@ rev = "973dd744f5f7c6322799bbfa29366588e0267b0a"
 git = "https://github.com/gluwa/substrate.git"
 version = '4.0.0-dev'
 rev = "973dd744f5f7c6322799bbfa29366588e0267b0a" 
+
+[dependencies.sp-panic-handler]
+default-features = false
+git = "https://github.com/gluwa/substrate.git"
+version = '4.0.0-dev'
+rev = "973dd744f5f7c6322799bbfa29366588e0267b0a"
 
 [features]
 default = ['std']

@@ -957,6 +957,7 @@ version = "2.0.0-beta.7"
 dependencies = [
  "creditcoin-node-rpc",
  "creditcoin-node-runtime",
+ "fdlimit",
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "futures-lite",
@@ -990,6 +991,7 @@ dependencies = [
  "sp-core",
  "sp-inherents",
  "sp-keystore",
+ "sp-panic-handler",
  "sp-runtime",
  "sp-timestamp",
  "structopt",
