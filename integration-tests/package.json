@@ -22,7 +22,7 @@
     "creditcoin-js": "file:../creditcoin-js/lib",
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",
-    "ethers": "^5.6.5",
+    "ethers": "^6.0.3",
     "jest": "^28.0.3",
     "js-guid": "^1.0.0",
     "prettier": "^2.6.2",
